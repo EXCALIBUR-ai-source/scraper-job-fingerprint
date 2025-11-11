@@ -1,106 +1,201 @@
-// --- Supabase config (client-side) ---
-const SUPABASE_URL = "https://nctyyffspvscotsscfex.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdHl5ZmZzcHZzY290c3NjZmV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIxMDI2MjIsImV4cCI6MjA3NzY3ODYyMn0.TDlVi7wp4H0Drmnx9DnKZ5CxVotNnrbuR-C6EJsH6qE"; // <- your anon/public key ONLY
+// Note: supabase is now loaded from supabase.js content script
 
-// Storage keys used across popup + content
-const STORAGE_KEYS = {
-  session: "jf.session",           // { access_token, refresh_token, user: { id, email }, ts }
-  user: "jf.user"                  // { id, email, username }
-};
-
-// Helpers for storage
+// Make these globally accessible by using window object
 const storage = {
   async set(obj) { return chrome.storage.local.set(obj); },
   async get(keys) { return chrome.storage.local.get(keys); },
   async remove(keys) { return chrome.storage.local.remove(keys); }
 };
 
-// --- Minimal Supabase REST helpers (no supabase-js so Extension stays CSP-compliant) ---
-async function supaFetch(path, { method = "GET", body, accessToken } = {}) {
-  const headers = {
-    "apikey": SUPABASE_ANON_KEY,
-    "Content-Type": "application/json"
-  };
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+const STORAGE_KEYS = {
+  session: "jf.session",
+  user: "jf.user"
+};
 
-  const res = await fetch(`${SUPABASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
+
+async function sendEmailOtp(email) {
+  const res = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `chrome-extension://${chrome.runtime.id}/auth-callback.html`
+    }
   });
-
-  console.log("supaFetch",res)
-
-  // Return both ok + JSON (or empty)
-  let data = null;
-  try { data = await res.json(); } catch (_e) {}
-  if (!res.ok) {
-    const msg = (data && (data.error_description || data.message)) || res.statusText;
-    throw new Error(msg);
-  }
-  console.log("data",data)
-  return data;
+  return res?.data || null || undefined;
 }
 
-// Send 6-digit OTP to email (creates user if not exists)
-function sendEmailOtp(email) {
-  return supaFetch(`/auth/v1/otp`, {
-    method: "POST",
-    body: { email, type: "email", create_user: true }
+async function verifyEmailOtp(email, token) {
+  const res = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: "email"
   });
+  return res?.data || null || undefined;
 }
 
-// Verify OTP (returns session with tokens + user)
-function verifyEmailOtp(email, token) {
-  return supaFetch(`/auth/v1/verify`, {
-    method: "POST",
-    body: { type: "email", email, token }
-  });
-}
-
-// Refresh token if needed
 async function refreshSession(refresh_token) {
-  return supaFetch(`/auth/v1/token?grant_type=refresh_token`, {
-    method: "POST",
-    body: { refresh_token }
-  });
+  const res = await supabase.auth.refreshSession(refresh_token);
+  return res?.data || null || undefined;
 }
 
-// PostgREST: upsert user (id = auth user id)
 async function upsertUser({ id, email, username }, accessToken) {
-  // Check if exists by id
-  const existing = await supaFetch(`/rest/v1/User?id=eq.${encodeURIComponent(id)}&select=id`, {
-    accessToken
-  });
-  if (Array.isArray(existing) && existing.length) {
-    // Update username/email if you want; otherwise no-op
-    return existing[0];
+  // Insert or update user profile in User table
+  // Fields: id (UUID from auth.users), email, username, created_at (auto-set by Supabase)
+  
+  try {
+    // Step 1: Check if user profile exists by ID (primary check)
+    const { data: existingUserById } = await supabase
+      .from('User')
+      .select('id, email, username')
+      .eq('id', id)
+      .maybeSingle();
+    
+    if (existingUserById) {
+      // Profile exists with this ID, update it
+      const { data, error } = await supabase
+        .from('User')
+        .update({ email, username })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error updating user profile:', error);
+        throw new Error(error.message || 'Failed to update user profile');
+      }
+      
+      console.log('User profile updated (by ID):', data);
+      return data;
+    }
+    
+    // Step 2: Check if a profile exists with this email but different ID
+    const { data: existingUserByEmail } = await supabase
+      .from('User')
+      .select('id, email, username')
+      .eq('email', email)
+      .maybeSingle();
+    
+    if (existingUserByEmail) {
+      // Profile existsNot signed in with this email but different ID
+      // This can happen if auth user was recreated or data is inconsistent
+      console.log('Found existing profile with email but different ID. Replacing with new auth user ID.');
+      
+      // Delete the old profile first
+      const { error: deleteError } = await supabase
+        .from('User')
+        .delete()
+        .eq('email', email);
+      
+      if (deleteError) {
+        console.error('Error deleting old profile:', deleteError);
+        throw new Error('Failed to migrate user profile');
+      }
+      
+      // Insert new profile with correct auth user ID
+      const { data, error } = await supabase
+        .from('User')
+        .insert([{ id, email, username }])
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error creating migrated profile:', error);
+        throw new Error(error.message || 'Failed to create user profile');
+      }
+      
+      console.log('User profile migrated (replaced):', data);
+      return data;
+    }
+    
+    // Step 3: No profile exists, create a new one
+    const { data, error } = await supabase
+      .from('User')
+      .insert([{ id, email, username }])
+      .select()
+      .single();
+    
+    if (error) {
+      // Check if it's a duplicate email error (shouldn't happen after checks above)
+      if (error.code === '23505' && error.message.includes('email')) {
+        throw new Error('This email is already registered. If you are signing in, please try again. If the issue persists, contact support.');
+      }
+      console.error('Error creating user profile:', error);
+      throw new Error(error.message || 'Failed to create user profile');
+    }
+    
+    console.log('User profile created:', data);
+    return data;
+  } catch (error) {
+    console.error('Error in upsertUser:', error);
+    throw error;
   }
-  // Insert
-  const rows = await supaFetch(`/rest/v1/User`, {
-    method: "POST",
-    accessToken,
-    body: [{ id, email, username }],
-  });
-  return rows[0] || { id, email, username };
 }
 
-// Save positionApplied
-async function savePositionApplied({ company, job_title, position_url, user_id }, accessToken) {
-  const rows = await supaFetch(`/rest/v1/positionApplied`, {
-    method: "POST",
-    accessToken,
-    body: [{ company, job_title, position_url, user_id }]
-  });
-  return rows[0] || null;
+async function getUserProfile(userId) {
+  // Fetch user profile from User table
+  const res = await supabase
+    .from('User')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  
+  if (res.error && res.error.code !== 'PGRST116') { // PGRST116 = not found
+    console.error('Error fetching user profile:', res.error);
+    throw new Error(res.error.message || 'Failed to fetch user profile');
+  }
+  
+  return res.data || null;
 }
 
-// Query bookmark by UUID + user
+async function savePositionApplied({ company, job_title, position_url, user_id, uuid }, accessToken) {
+  // Insert job application into positionApplied table
+  // Fields: id (auto), created_at (auto), company, job_title, position_url, user_id, UUID
+  const res = await supabase
+    .from('positionApplied')
+    .insert([{
+      company,
+      job_title,
+      position_url,
+      user_id,
+      UUID: uuid  // Job position identifier extracted from URL
+    }])
+    .select();
+  
+  if (res.error) {
+    console.error('Error saving position:', res.error);
+    throw new Error(res.error.message || 'Failed to save job application');
+  }
+  
+  console.log('Job application saved:', res.data);
+  return res.data;
+}
+
 async function findPositionByUuid({ uuid, user_id }, accessToken) {
-  const filter =
-    `user_id=eq.${encodeURIComponent(user_id)}&position_url=ilike.*${encodeURIComponent(uuid)}*`;
-  const rows = await supaFetch(`/rest/v1/positionApplied?${filter}&select=id,company,job_title,position_url,created_at`, {
-    accessToken
-  });
-  return rows;
+    const res = await supabase.from('positionApplied').select('*').eq('user_id', user_id).eq('UUID', uuid);
+    return res?.data || null || undefined;
 }
+
+async function deletePositionApplied({ uuid, user_id }, accessToken) {
+    const res = await supabase
+        .from('positionApplied')
+        .delete()
+        .eq('user_id', user_id)
+        .eq('UUID', uuid);
+
+    if (res.error) {
+        console.error('Error deleting position:', res.error);
+        throw new Error(res.error.message || 'Failed to delete job application');
+    }
+
+    console.log('Job application deleted:', { uuid, user_id });
+    return true;
+}
+
+// Make functions globally accessible
+window.sendEmailOtp = sendEmailOtp;
+window.verifyEmailOtp = verifyEmailOtp;
+window.refreshSession = refreshSession;
+window.upsertUser = upsertUser;
+window.getUserProfile = getUserProfile;
+window.savePositionApplied = savePositionApplied;
+window.findPositionByUuid = findPositionByUuid;
+window.deletePositionApplied = deletePositionApplied;

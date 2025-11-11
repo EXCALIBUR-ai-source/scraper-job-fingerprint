@@ -1,0 +1,261 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Job Fingerprint – Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; 
+      width: 420px;
+      min-height: 500px;
+      background: #f9fafb;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px 24px;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .user-name {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .user-email {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .content {
+      padding: 20px 24px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #667eea;
+      margin-bottom: 4px;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .section {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 12px;
+    }
+    .job-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .job-item {
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .job-item:hover {
+      border-color: #667eea;
+      background: #f9fafb;
+    }
+    .job-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 4px;
+    }
+    .job-company {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+    .job-url {
+      font-size: 12px;
+      color: #667eea;
+      text-decoration: none;
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .job-url:hover {
+      text-decoration: underline;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: #9ca3af;
+    }
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    .empty-state-text {
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .empty-state-hint {
+      font-size: 12px;
+      background: #f3f4f6;
+      padding: 8px 12px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+    .kbd {
+      background: #374151;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+    .actions {
+      margin-top: 20px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .btn-secondary:hover {
+      background: #e5e7eb;
+    }
+    .btn-danger {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .btn-danger:hover {
+      background: #fecaca;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #9ca3af;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <div>Loading dashboard...</div>
+  </div>
+
+  <div id="dashboard" style="display: none;">
+    <div class="header">
+      <div class="header-top">
+        <h1>🔖 Job Fingerprint</h1>
+      </div>
+      <div class="user-info">
+        <div class="avatar" id="avatar">👤</div>
+        <div>
+          <div class="user-name" id="userName">Loading...</div>
+          <div class="user-email" id="userEmail">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-value" id="totalJobs">0</div>
+          <div class="stat-label">Saved Jobs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="recentJobs">0</div>
+          <div class="stat-label">This Week</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Recent Applications</div>
+        <div id="jobList" class="job-list">
+          <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-text">No jobs saved yet</div>
+            <div class="empty-state-hint">
+              Press <span class="kbd">Alt + X</span> on any job page to save it
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="refreshBtn" class="btn-secondary">🔄 Refresh Jobs</button>
+        <button id="signOutBtn" class="btn-danger">Sign Out</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="supabase-js.umd.js"></script>
+  <script src="supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <body>Signing you in…</body>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    const SUPABASE_URL = "https://nctyyffspvscotsscfex.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdHl5ZmZzcHZzY290c3NjZmV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIxMDI2MjIsImV4cCI6MjA3NzY3ODYyMn0.TDlVi7wp4H0Drmnx9DnKZ5CxVotNnrbuR-C6EJsH6qE";
+
+    // Important: detectSessionInUrl lets supabase-js parse the URL hash and set the session.
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
+    });
+
+    (async () => {
+      // If the email link used the hash (#access_token=...), supabase will parse it on load.
+      // In some setups it helps to also read it manually as a fallback:
+      const hash = new URLSearchParams(location.hash.slice(1));
+      const access_token  = hash.get("access_token");
+      const refresh_token = hash.get("refresh_token");
+
+      if (access_token && refresh_token) {
+        await supabase.auth.setSession({ access_token, refresh_token });
+      } else {
+        // Newer flows may return ?code=... instead of #access_token=...
+        const code = new URL(location.href).searchParams.get("code");
+        if (code) await supabase.auth.exchangeCodeForSession(code);
+      }
+
+      // Optional: let the background script/UI know we’re signed in
+      chrome.runtime.sendMessage({ type: "supabase-auth-success" });
+
+      window.close(); // close the tab/pop-up
+    })();
+  </script>
+</html>
